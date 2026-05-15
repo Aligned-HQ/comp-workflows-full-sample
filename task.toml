@@ -8,7 +8,7 @@ keywords = ["biology", "bioinformatics", "gene-expression", "classification", "l
 
 [metadata]
 difficulty = "medium"
-category = ""
+category = "biology"
 subcategory = "bioinformatics"
 estimated_expert_hours = 6
 difficulty_explanation = "Multi-step bioinformatics pipeline: GEO download, probe-to-gene aggregation, log2 + z-score normalisation, stratified CV with LASSO, and biomarker extraction."
