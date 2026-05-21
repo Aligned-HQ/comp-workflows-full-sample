@@ -1,9 +1,9 @@
 schema_version = "1.1"
 
 [task]
-name = "viral-vs-bacterial-classifier"
+name = "aligned/viral-vs-bacterial-classifier"
 description = "Binary LASSO logistic regression classifier distinguishing viral from bacterial infection from GSE6269 gene-expression profiles."
-authors = [{ name = "Bioinformatics Expert", email = "expert@example.com" }]
+authors = [{ name = "X", email = "X@gmail.com" }]
 keywords = ["biology", "bioinformatics", "gene-expression", "classification", "logistic-regression", "geo"]
 
 [metadata]
