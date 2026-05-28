@@ -1,20 +1,28 @@
 schema_version = "1.1"
+artifacts = ["/workspace/output/pipeline.py"]
 
 [task]
 name = "aligned/viral-vs-bacterial-classifier"
 description = "Binary LASSO logistic regression classifier distinguishing viral from bacterial infection from GSE6269 gene-expression profiles."
-authors = [{ name = "X", email = "X@gmail.com" }]
-keywords = ["biology", "bioinformatics", "gene-expression", "classification", "logistic-regression", "geo"]
 
 [metadata]
-difficulty = "medium"
+author_name = "X"
+author_email = "X@gmail.com"
 category = "biology"
-subcategory = "bioinformatics"
-estimated_expert_hours = 6
-difficulty_explanation = "Multi-step bioinformatics pipeline: GEO download, probe-to-gene aggregation, log2 + z-score normalisation, stratified CV with LASSO, and biomarker extraction."
+tags = ["bioinformatics", "gene-expression", "geo", "classification", "feature-engineering", "scikit-learn"]
+expert_time_estimate_hours = 6
+difficulty_explanation = """
+Distinguishing viral from bacterial infection from peripheral-blood gene expression is a real diagnostic problem in clinical genomics. The data are real pediatric microarray samples from NCBI GEO series GSE6269 (Affymetrix HG-U133A) — not synthetic — and carry the usual messiness of a public expression archive. The difficulty is not any single algorithm but engineering a pipeline that genuinely generalises on a small, strongly imbalanced cohort (91 samples, ~80/20 bacterial/viral): parsing a raw multi-platform GEO SOFT family file, restricting to one platform, collapsing multi-mapped and duplicate probes onto gene symbols, recovering labels from free-text sample metadata, deciding whether the array is already log-scaled, and choosing features and a model that hold up under held-out cross-validation rather than overfitting ~13k gene features to 91 samples. Because the task is graded by a verifier that owns the cross-validation splits, there is no credit for fitting on the evaluation data — the challenge is real predictive modelling under class imbalance and high dimensionality, which is everyday work for a computational biologist or biomarker-discovery researcher building diagnostic classifiers from public expression data.
+"""
+solution_explanation = """
+The deliverable is a pipeline module, not a set of numbers: the agent (and the reference) write `/workspace/output/pipeline.py` exposing `build_features(gse)` and `make_estimator()`. The reference `build_features` parses nothing itself — it receives the already-parsed GEOparse object, restricts to GPL96, pivots probe-level VALUE measurements into a samples x probes matrix, maps probes to gene symbols (first symbol when multi-mapped), averages probes hitting the same gene, restricts to the fixed 91-sample cohort, and applies only label-independent transforms (clip negatives, log2 if the 99th percentile indicates raw intensities). Crucially `build_features` never sees labels, so it cannot leak supervised information across folds. The reference `make_estimator` returns a scikit-learn `Pipeline` of `StandardScaler` followed by an L1-penalised logistic regression (liblinear, C = 1, balanced class weights, seed 123); putting the scaler inside the estimator means it is refit on each training fold by the verifier, so even feature scaling is leakage-free. The key insight is that LASSO on z-scored gene expression yields a sparse, well-regularised classifier that generalises on this small imbalanced cohort, and that balanced class weights keep the minority viral class from being washed out.
+"""
+verification_explanation = """
+The verifier imports the agent's `/workspace/output/pipeline.py`, parses the GEO SOFT file once, and independently derives the ground-truth labels from `characteristics_ch1` metadata for the GPL96 cohort (influenza A -> 1; E. coli / S. aureus / S. pneumoniae -> 0), asserting exactly 91 labelled samples. It calls `build_features(gse)`, requires the returned sample set to equal those 91 (so the agent cannot drop hard samples) and the feature matrix to be finite and row-aligned. It then runs its OWN `StratifiedKFold(n_splits=5, shuffle=True, random_state=123)`: for each fold it instantiates a fresh `make_estimator()`, fits it on the training rows, and scores AUC-ROC on the held-out rows (using `predict_proba` or `decision_function`). The task passes if the mean held-out AUC across folds is at least 0.90. This threshold is the operationalisation of the instruction's "do as well as you can" objective: it sits well below the reference pipeline's honest cross-validated AUC and far above chance (0.5), so it rejects weak or broken models while admitting any genuinely predictive pipeline regardless of feature-engineering or model choice. Because the verifier — not the agent — owns the splits, the labels, and the scoring, the score cannot be inflated by training on held-out data; the only way to pass is a pipeline that actually generalises. With ~18 viral samples spread across 5 stratified folds (3-4 per held-out fold), AUC is well defined in every fold and stable under the fixed seed.
+"""
 
 [verifier]
-timeout_sec = 120.0
+timeout_sec = 300.0
 user = "root"
 
 [agent]
@@ -23,7 +31,6 @@ user = "agent"
 
 [environment]
 build_timeout_sec = 900.0
-os = "linux"
 cpus = 2
 memory_mb = 4096
 storage_mb = 10240

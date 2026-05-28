@@ -1,123 +1,136 @@
-"""Pytest verifier for the viral-vs-bacterial classifier task.
+"""Verifier for the viral-vs-bacterial classifier task (verifier-owned CV).
 
-Loads /workspace/output/result.json and checks it against the reference
-values from the task author, with tolerances matching the verification
-criteria in the original task submission.
+Imports the agent's /workspace/output/pipeline.py, builds the feature
+matrix via the agent's build_features, derives the true labels itself,
+and runs its OWN StratifiedKFold to score the mean held-out AUC-ROC. The
+agent cannot inflate the score by training on held-out data: the verifier
+controls the cohort, the labels, the splits, and the scoring. The agent
+controls only feature engineering and model choice.
 """
 from __future__ import annotations
 
-import json
+import importlib.util
+import sys
 from pathlib import Path
 
+import GEOparse
+import numpy as np
 import pytest
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
 
+PIPELINE_PATH = Path("/workspace/output/pipeline.py")
+GEO_SOFT_PATH = Path("/workspace/data/GSE6269_family.soft.gz")
 
-OUTPUT_PATH = Path("/workspace/output/result.json")
+SEED = 123
+N_SPLITS = 5
+COHORT_SIZE = 91
 
-EXPECTED_KEYS = {
-    "accuracy",
-    "sensitivity",
-    "specificity",
-    "auc",
-    "viral_biomarkers",
-    "bacterial_biomarkers",
-}
+# Pass bar for the mean cross-validated AUC. Calibrated below the reference
+# pipeline's honest-CV score and well above chance (0.5); see
+# verification_explanation in task.toml.
+AUC_THRESHOLD = 0.90
 
-# Reference metric values from the task author's solution.
-EXPECTED_ACCURACY = 0.944
-EXPECTED_SENSITIVITY = 1.000
-EXPECTED_SPECIFICITY = 0.930
-EXPECTED_AUC = 0.978
-
-# Tolerances pulled from the original verificationCriteria.
-METRIC_TOL = 0.05  # ±5 percentage points for accuracy/sensitivity/specificity
-AUC_TOL = 0.05
-
-EXPECTED_VIRAL_GENES = {"OTOF", "HIST1H4H", "IFI27"}
-EXPECTED_BACTERIAL_GENES = {"OSBPL1A", "VGLL1", "AC004692.5"}
-MIN_GENE_MATCHES = 2
+VIRAL_TOKENS = ("influenza a",)
+BACTERIAL_TOKENS = ("s. aureus", "e. coli", "s. pneumoniae")
 
 
 @pytest.fixture(scope="module")
-def output() -> dict:
-    assert OUTPUT_PATH.exists(), f"output file not found at {OUTPUT_PATH}"
-    return json.loads(OUTPUT_PATH.read_text())
+def gse():
+    assert GEO_SOFT_PATH.exists(), f"GEO data not found at {GEO_SOFT_PATH}"
+    return GEOparse.get_GEO(filepath=str(GEO_SOFT_PATH))
 
 
-def test_output_has_required_keys(output: dict) -> None:
-    assert set(output) == EXPECTED_KEYS
+@pytest.fixture(scope="module")
+def truth(gse) -> dict:
+    """Verifier-owned ground truth: {gsm_id: label} for the GPL96 cohort."""
+    labels: dict[str, int] = {}
+    for gsm_id, gsm in gse.gsms.items():
+        if gsm.metadata.get("platform_id", [None])[0] != "GPL96":
+            continue
+        meta = " ".join(gsm.metadata.get("characteristics_ch1", [])).lower()
+        if any(t in meta for t in VIRAL_TOKENS):
+            labels[gsm_id] = 1
+        elif any(t in meta for t in BACTERIAL_TOKENS):
+            labels[gsm_id] = 0
+    return labels
 
 
-@pytest.mark.parametrize(
-    "key, expected",
-    [
-        ("accuracy", EXPECTED_ACCURACY),
-        ("sensitivity", EXPECTED_SENSITIVITY),
-        ("specificity", EXPECTED_SPECIFICITY),
-    ],
-)
-def test_metric_within_tolerance(output: dict, key: str, expected: float) -> None:
-    value = float(output[key])
-    assert 0.0 <= value <= 1.0, f"{key}={value} out of [0, 1]"
-    assert abs(value - expected) <= METRIC_TOL, (
-        f"{key}={value:.3f} differs from reference {expected} by more than ±{METRIC_TOL}"
+@pytest.fixture(scope="module")
+def pipeline_module():
+    assert PIPELINE_PATH.exists(), f"agent pipeline not found at {PIPELINE_PATH}"
+    spec = importlib.util.spec_from_file_location("agent_pipeline", PIPELINE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["agent_pipeline"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def features(pipeline_module, gse):
+    assert hasattr(pipeline_module, "build_features"), (
+        "pipeline.py must define build_features(gse)"
+    )
+    out = pipeline_module.build_features(gse)
+    assert isinstance(out, tuple) and len(out) == 2, (
+        "build_features must return a (X, sample_ids) tuple"
+    )
+    X, sample_ids = out
+    X = np.asarray(X, dtype=float)
+    sample_ids = list(sample_ids)
+    assert X.ndim == 2, f"X must be 2-D, got shape {X.shape}"
+    assert X.shape[0] == len(sample_ids), "X rows must align with sample_ids"
+    assert np.isfinite(X).all(), "X must not contain NaN/inf"
+    return X, sample_ids
+
+
+def test_truth_cohort_size(truth: dict) -> None:
+    assert len(truth) == COHORT_SIZE, (
+        f"verifier derived {len(truth)} labelled samples, expected {COHORT_SIZE}"
     )
 
 
-def test_auc_within_tolerance(output: dict) -> None:
-    auc = float(output["auc"])
-    assert 0.0 <= auc <= 1.0, f"auc={auc} out of [0, 1]"
-    assert abs(auc - EXPECTED_AUC) <= AUC_TOL, (
-        f"auc={auc:.3f} differs from reference {EXPECTED_AUC} by more than ±{AUC_TOL}"
+def test_cohort_matches(features, truth: dict) -> None:
+    _, sample_ids = features
+    assert len(sample_ids) == COHORT_SIZE, (
+        f"build_features returned {len(sample_ids)} samples, expected {COHORT_SIZE}"
+    )
+    assert set(sample_ids) == set(truth), (
+        "build_features must return exactly the labelled cohort samples"
     )
 
 
-def _check_biomarkers(
-    biomarkers: list,
-    expected_genes: set[str],
-    *,
-    sign: str,
-) -> None:
-    assert isinstance(biomarkers, list), "biomarkers must be a list"
-    assert len(biomarkers) == 3, f"expected 3 biomarkers, got {len(biomarkers)}"
-
-    for entry in biomarkers:
-        assert isinstance(entry, dict), f"biomarker entry must be a dict, got {type(entry)}"
-        assert set(entry) == {"gene", "coefficient"}, (
-            f"biomarker entry must have keys {{'gene', 'coefficient'}}, got {set(entry)}"
-        )
-        coef = float(entry["coefficient"])
-        if sign == "positive":
-            assert coef > 0, f"viral biomarker {entry['gene']!r} has non-positive coef {coef}"
-        else:
-            assert coef < 0, f"bacterial biomarker {entry['gene']!r} has non-negative coef {coef}"
-
-    submitted = {entry["gene"] for entry in biomarkers}
-    overlap = submitted & expected_genes
-    assert len(overlap) >= MIN_GENE_MATCHES, (
-        f"expected at least {MIN_GENE_MATCHES} of {expected_genes}; got {submitted}"
+def test_make_estimator_contract(pipeline_module) -> None:
+    assert hasattr(pipeline_module, "make_estimator"), (
+        "pipeline.py must define make_estimator()"
+    )
+    est = pipeline_module.make_estimator()
+    assert hasattr(est, "fit"), "estimator must implement fit"
+    assert hasattr(est, "predict_proba") or hasattr(est, "decision_function"), (
+        "estimator must implement predict_proba or decision_function"
     )
 
 
-def test_viral_biomarkers(output: dict) -> None:
-    _check_biomarkers(output["viral_biomarkers"], EXPECTED_VIRAL_GENES, sign="positive")
+def _scores(estimator, X):
+    if hasattr(estimator, "predict_proba"):
+        return estimator.predict_proba(X)[:, 1]
+    return estimator.decision_function(X)
 
 
-def test_bacterial_biomarkers(output: dict) -> None:
-    _check_biomarkers(
-        output["bacterial_biomarkers"], EXPECTED_BACTERIAL_GENES, sign="negative"
-    )
+def test_mean_cv_auc_meets_threshold(features, truth: dict, pipeline_module) -> None:
+    X, sample_ids = features
+    y = np.array([truth[s] for s in sample_ids])
 
+    cv = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=SEED)
+    aucs = []
+    for train_idx, test_idx in cv.split(X, y):
+        est = pipeline_module.make_estimator()
+        est.fit(X[train_idx], y[train_idx])
+        aucs.append(roc_auc_score(y[test_idx], _scores(est, X[test_idx])))
 
-def test_viral_biomarkers_ordered_descending(output: dict) -> None:
-    coefs = [float(entry["coefficient"]) for entry in output["viral_biomarkers"]]
-    assert coefs == sorted(coefs, reverse=True), (
-        f"viral_biomarkers must be sorted from largest to smallest coefficient; got {coefs}"
-    )
-
-
-def test_bacterial_biomarkers_ordered_ascending(output: dict) -> None:
-    coefs = [float(entry["coefficient"]) for entry in output["bacterial_biomarkers"]]
-    assert coefs == sorted(coefs), (
-        f"bacterial_biomarkers must be sorted from most-negative to least-negative; got {coefs}"
+    mean_auc = float(np.mean(aucs))
+    print(f"per-fold AUC: {[round(a, 4) for a in aucs]}")
+    print(f"mean CV AUC:  {mean_auc:.4f} (threshold {AUC_THRESHOLD})")
+    assert mean_auc >= AUC_THRESHOLD, (
+        f"mean CV AUC {mean_auc:.4f} is below the pass threshold {AUC_THRESHOLD}"
     )

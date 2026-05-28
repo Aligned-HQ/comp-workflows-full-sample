@@ -1,14 +1,12 @@
 FROM python:3.12-slim
 
-# Install Python packages. `uv` provides the `uvx` command used by
-# tests/test.sh to spin up an isolated pytest environment.
+# Python packages required by the task itself.
 RUN pip install --no-cache-dir \
     numpy==1.26.4 \
     pandas==2.2.2 \
     scipy==1.14.0 \
     scikit-learn==1.5.0 \
-    GEOparse==2.0.4 \
-    uv==0.5.11
+    GEOparse==2.0.4
 
 # Set working directory
 WORKDIR /workspace
@@ -16,5 +14,7 @@ WORKDIR /workspace
 # Copy gene-expression series data shipped with the task.
 COPY data/GSE6269_family.soft.gz /workspace/data/GSE6269_family.soft.gz
 
-# Create output directory
-RUN mkdir -p /workspace/output
+# Runtime user expected by task.toml, plus writable output directory.
+RUN useradd --create-home --shell /bin/bash agent \
+    && mkdir -p /workspace/output \
+    && chown -R agent:agent /workspace
