@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import os
 from pathlib import Path
 
 import GEOparse
@@ -19,8 +20,13 @@ import pytest
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 
-PIPELINE_PATH = Path("/workspace/output/pipeline.py")
-GEO_SOFT_PATH = Path("/workspace/data/GSE6269_family.soft.gz")
+DEFAULT_DATA_DIR = Path("/workspace/data")
+DEFAULT_OUTPUT_DIR = Path("/workspace/output")
+
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(DEFAULT_DATA_DIR)))
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", str(DEFAULT_OUTPUT_DIR)))
+PIPELINE_PATH = Path(os.environ.get("PIPELINE_PATH", str(OUTPUT_DIR / "pipeline.py")))
+GEO_SOFT_PATH = Path(os.environ.get("GEO_SOFT_PATH", str(DATA_DIR / "GSE6269_family.soft.gz")))
 
 SEED = 123
 N_SPLITS = 5
