@@ -1,0 +1,41 @@
+{
+  "method": "Per-gene standardised mean difference (viral - bacterial) on the log2 GPL96 expression matrix, cross-checked against the non-zero coefficients of the L1 logistic classifier. Markers below are the leading directional genes that are both differentially expressed and selected by the model.",
+  "viral_up_markers": [
+    "IFI27",
+    "IFI44L",
+    "IFIT1",
+    "IFIT3",
+    "ISG15",
+    "MX1",
+    "OAS1",
+    "OAS2",
+    "OAS3",
+    "RSAD2",
+    "USP18",
+    "SIGLEC1",
+    "SERPING1",
+    "LY6E",
+    "IFI44"
+  ],
+  "bacterial_up_markers": [
+    "LTF",
+    "OLFM4",
+    "CAMP",
+    "CEACAM8",
+    "ELANE",
+    "DEFA1",
+    "DEFA4",
+    "BPI",
+    "MPO",
+    "MMP8",
+    "CRISP3",
+    "PGLYRP1",
+    "MGAM",
+    "IL1R2",
+    "CHI3L1"
+  ],
+  "signature_interpretation": {
+    "viral": "Type-I interferon / interferon-stimulated gene (ISG) program: IFI27, IFI44L, IFIT1/3, ISG15, MX1, OAS1/2/3, RSAD2, USP18, SIGLEC1. This is the canonical antiviral transcriptional signature expected in influenza A.",
+    "bacterial": "Neutrophil / myeloid granule program: primary (ELANE, MPO, BPI, DEFA1/4), secondary (LTF, CAMP) and tertiary (MMP8) granule genes plus OLFM4 and PGLYRP1, consistent with neutrophil expansion and emergency granulopoiesis in pyogenic bacterial infection."
+  }
+}

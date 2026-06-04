@@ -1,12 +1,15 @@
 FROM python:3.12-slim
 
+# Only agent-facing paths are baked into the image. Solution/test/log paths
+# are deliberately NOT set here: the reference solution and the verifier live
+# outside the Docker build context (this Dockerfile's context is
+# environment/, while solution/ and tests/ are siblings of it), so they are
+# never copied into the agent's image. The solve/verifier scripts default
+# those paths themselves and the harness mounts them only at grading time.
 ENV WORKSPACE_DIR=/workspace \
     DATA_DIR=/workspace/data \
     OUTPUT_DIR=/workspace/output \
-    PIPELINE_PATH=/workspace/output/pipeline.py \
-    SOLUTION_DIR=/solution \
-    TESTS_DIR=/tests \
-    LOG_DIR=/logs/verifier
+    PIPELINE_PATH=/workspace/output/pipeline.py
 
 # Python packages required by the task and verifier.
 RUN pip install --no-cache-dir \

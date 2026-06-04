@@ -1,8 +1,8 @@
 """Reference pipeline for the viral-vs-bacterial classifier task.
 
 Delivers the two callables the verifier drives:
-  build_features(gse) -> (X, sample_ids)
-  make_estimator()    -> unfitted sklearn-compatible estimator
+  build_features(gse) -> (X, sample_ids, feature_names)
+  make_estimator()    -> unfitted sklearn-compatible estimator (predict_proba)
 
 Design note: build_features receives no labels, so every label-dependent
 step (the classifier) lives in make_estimator and is fit fresh by the
@@ -10,7 +10,9 @@ verifier inside each CV fold. build_features performs only
 label-independent feature construction (probe->gene aggregation and a
 log2 transform), leaking no information across folds. Feature scaling is
 placed inside the estimator Pipeline so it, too, is fit on training folds
-only.
+only. feature_names carries the gene symbol for every column of X, so the
+probe->gene mapping is inspectable and the reported markers in
+markers.json can be tied back to concrete model features.
 """
 from __future__ import annotations
 
@@ -62,7 +64,9 @@ def build_features(gse):
     p99 = np.nanpercentile(X.values, 99)
     if p99 > 100:
         X = np.log2(X.clip(lower=0) + 1)
-    return X.to_numpy(dtype=float), sample_ids
+
+    feature_names = list(X.columns)
+    return X.to_numpy(dtype=float), sample_ids, feature_names
 
 
 def make_estimator():
